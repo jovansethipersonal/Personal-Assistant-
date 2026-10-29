@@ -46,6 +46,8 @@ Tier D is deliberate. Those accounts can reset everything else, so the assistant
 
 ## 4. Where secrets live
 
+**The assistant's own keys** (Plaid keys, AI API key, the token for the optional vault) are kept in the macOS Keychain of the "Assistant" user on your Mac. They are separate from your Apple Passwords, and the AI model never sees them.
+
 **Default plan: Apple Passwords only.** Your passwords stay in Apple Passwords and nothing new is needed. Apple Passwords has no API, so the assistant **can't read it on its own**. Every login goes through you:
 
 1. The assistant needs to log in somewhere → texts you *"Need your Duke Energy login. [Enter securely]"*

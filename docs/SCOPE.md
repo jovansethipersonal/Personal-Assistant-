@@ -35,6 +35,9 @@ You should be able to say things like:
 | **Banking and cards** | Amex (cards + banking) |
 | **Paying in stores and online** | Apple Pay |
 | **Paying people** | Venmo (main), Apple Cash (occasionally), PayPal (rarely) |
+| **Home base** | A Mac that can stay on (runs the whole system to start, see §4.3) |
+| **Bank data** | Existing Plaid developer account (status to check, see §2.3) |
+| **Password manager** | Apple Passwords |
 
 ---
 
@@ -78,6 +81,33 @@ Each area lists what the assistant **knows** (context) and **does** (actions), p
 
 **Does:** makes sure nothing is missed, flags anomalies, pays bills (see §5 for how), cancels unwanted subscriptions, answers spending questions, prepares tax-relevant summaries.
 
+#### Finding your bills from Amex statements
+
+During setup the assistant pulls up to **24 months** of Amex card and checking transactions and finds the recurring ones itself: same payee, regular interval, similar amount. You get a list to confirm:
+
+> *I found 14 recurring bills: Duke Energy (~$140, monthly, around the 12th), State Farm ($212 every 6 months), Verizon ($95, monthly), … Which of these are on autopay?*
+
+What you confirm becomes the **known payee list** (§3).
+
+| Bank transactions show | Filled in from elsewhere |
+|---|---|
+| Who you pay, how much, when, how often | **Due dates and account numbers** come from bill emails |
+| Subscriptions and price increases | **Autopay status**: you confirm once; a charge on the same day every month is a strong hint |
+| Your Amex card bill: statement balance, minimum payment, due date (Plaid Liabilities) | **Venmo details**: the bank only shows "VENMO" and a total; who and why come from Venmo receipt emails |
+| | **Bills paid from other accounts or by someone else** don't appear; add them by hand |
+
+The recurring-bill detection is built in (Plaid sells its own as a paid add-on, which isn't needed).
+
+#### Plaid: what to check in your existing account
+
+- **Plaid's old "Development" environment is gone.** Plaid now has Sandbox (fake data only) and Production (real accounts), so keys from a previous attempt may not work for real data.
+- In the Plaid dashboard, check which plan the account is on:
+  - **Limited Production:** the older free tier for existing accounts. Check that **American Express** shows as available on the *OAuth institutions* page.
+  - **Trial plan:** the newer free tier (accounts created after April 15, 2026). Up to 10 connected accounts, and it includes Amex.
+  - **Full Production:** needs Plaid's registration (company info and a security questionnaire). Institutions usually turn on within hours to a couple of days.
+- Products needed: **Transactions** and **Liabilities** (card due dates and balances).
+- **Don't paste Plaid keys into chat.** They go straight into the Mac's keychain during setup (see §4.3).
+
 #### Paying people (Venmo, Apple Cash, PayPal)
 
 "Pay Meinecke $30 for haircut" needs four things the assistant has to know or work out:
@@ -109,14 +139,18 @@ Each messaging app could play three different roles, and what's possible varies 
 
 | App | 1. You talk to the assistant | 2. It reads your conversations for context | 3. It sends messages as you |
 |---|---|---|---|
-| **Messages (iMessage)** | ✅ The assistant gets its own iMessage contact through an iMessage API provider (Sendblue, LoopMessage, Blooio, etc.), or BlueBubbles on a Mac you own | ⚠️ Only from a Mac signed in to your Apple ID, which reads the local Messages history. Apple has no cloud API. | ⚠️ Only from that Mac. Always needs your approval at first. |
+| **Messages (iMessage)** | ✅ The assistant gets its own Apple ID and iMessage contact, run from your Mac (see below) | ✅ Your Mac reads your local Messages history. | ✅ From your Mac. Always needs your approval at first. |
 | **WhatsApp** | ✅ Official WhatsApp Business Cloud API. The assistant gets its own WhatsApp number. | ❌ No official API for personal chats. Unofficial "linked device" tools break WhatsApp's terms and can get your number banned. | ❌ Same |
 | **Instagram** | ⚠️ Meta's messaging API works only for Business and Creator accounts | ❌ No API for personal DMs | ❌ No |
 | **Email (all your accounts)** | ✅ Email it or forward things to it | ✅ Gmail API, Microsoft Graph, or IMAP (iCloud, Yahoo, others) for each account | ✅ From the right account, with approval at first |
 
 **Recommendation:**
 
-- **Main channel: iMessage.** The assistant shows up as a contact in Messages and you text it like a person. Payment links (like the prefilled Venmo payment) open straight in the app. A hosted iMessage provider needs no Mac. BlueBubbles is cheaper but needs a Mac that stays on.
+- **Main channel: iMessage, run from your Mac.** The assistant shows up as a contact in Messages and you text it like a person. Payment links (like the prefilled Venmo payment) open straight in the app. No hosted iMessage service is needed.
+  - Messages on a Mac can only be signed in to **one Apple ID per macOS user**. So the Mac gets **two macOS users**:
+    - **"Assistant"**: signed in to a **new Apple ID** made just for the assistant. That's the contact you text. An iMessage bridge (BlueBubbles, or a small custom one) runs here.
+    - **You**: signed in to your Apple ID. A small read-only process indexes your Messages history for context, and later sends as you, with approval.
+  - Your message history includes other people's words. It's searched when needed and stays on the Mac, and you can exclude specific chats.
 - **Second channel: WhatsApp**, through the official API. It's the same assistant with the same memory. WhatsApp lets a business number message you freely only within 24 hours of your last message, and after that only with pre-approved templates. That makes iMessage the better channel for reminders the assistant starts on its own.
 - **Instagram: skip for now.** If something there matters, share it to the assistant with the iPhone share sheet.
 - **Voice: Siri.** An Apple Shortcut ("Hey Siri, ask Assistant…") sends what you say to the assistant and reads the answer back.
@@ -261,7 +295,7 @@ flowchart TB
 - Your Amex login, Apple ID, main email passwords and Venmo/PayPal logins are **never** given to the assistant. It uses revocable tokens or prepares actions for you to finish.
 - Your passwords stay in **Apple Passwords**. Apple has no API for it, so the assistant asks you to fill logins through Secure Entry and saves the browser session, so prompts are rare. A small separate 1Password vault is optional later, for sites you want handled hands-free. Encrypted database. MFA on everything.
 - **Prompt-injection defense**: content from email and the web is tagged untrusted. Untrusted content can inform but can't authorize. Payment and new-recipient tools require the payee to match the known payee list.
-- Single-tenant: it's your data, on infrastructure you control.
+- Single-tenant: it's your data, on your own Mac (§4.3).
 
 ### 4.2 Suggested stack
 
@@ -271,13 +305,37 @@ flowchart TB
 | Agent | Claude Agent SDK + MCP tool servers | Tool use, subagents, browser and computer use |
 | Database | Postgres + pgvector | One store for structured data and embeddings |
 | Jobs | Postgres-backed queue + cron (Temporal if it grows) | Keeps it simple at first |
-| Chat | iMessage API provider (or BlueBubbles on a Mac) + WhatsApp Business Cloud API | Where you already message |
+| Chat | iMessage bridge on your Mac (BlueBubbles or custom) + WhatsApp Business Cloud API | Where you already message, no monthly fee |
 | App | PWA (Next.js) with passkeys | Face ID approvals and push on iPhone, no App Store needed |
 | Location | OwnTracks or Overland (iOS) → HTTPS endpoint | Already built, runs in the background |
 | Email | Gmail API / Microsoft Graph / IMAP, one connection per account | Covers all your accounts |
-| Browser agent | Playwright in an isolated container | Mature, scriptable, screenshots for the audit log |
+| Browser agent | Playwright on the Mac, in its own sandboxed user/profile | Home internet connection gets blocked less than cloud servers; screenshots for the audit log |
 | Secrets | Secret broker + Secure Entry with Apple Passwords; optional 1Password service account later | No new password manager needed to start |
-| Hosting | Single small cloud VM or Fly.io, daily encrypted backups | Low cost, single tenant |
+| Hosting | **Your Mac** + Cloudflare Tunnel or Tailscale for webhooks and the web app, nightly encrypted offsite backups | No hosting bill, data stays home |
+| App secrets | macOS Keychain of the "Assistant" macOS user | Separate from your Apple Passwords |
+
+
+### 4.3 Your Mac as home base
+
+Your Mac runs the whole system to start. You can move the core to a cloud server later if uptime becomes a problem.
+
+| Runs on the Mac | Why there |
+|---|---|
+| Assistant core, database, scheduler | Your data stays home; no hosting bill |
+| iMessage bridge ("Assistant" macOS user) | Only a Mac can send and receive iMessage |
+| Your Messages history reader (your macOS user) | Your history only exists on Apple devices |
+| Browser agent | Utility and DMV sites block home connections less often than cloud servers |
+| Calendar, Contacts, Reminders | Read directly on the Mac if they're in iCloud |
+| App secrets (Plaid keys, AI API key) | In the Assistant user's macOS Keychain, separate from your Apple Passwords |
+
+**Reaching it from outside.** Plaid and WhatsApp send updates to the assistant, and the Face ID web app has to reach it from your phone. Cloudflare Tunnel or Tailscale Funnel handles this with **no open ports** on your router.
+
+**Keeping it up:**
+
+- Energy settings: never sleep, and start up automatically after a power failure.
+- **FileVault gotcha:** with disk encryption on (it should be), a Mac that restarts unexpectedly waits for a password before anything runs, including both macOS users. A small battery backup (UPS) prevents most unplanned restarts. Planned restarts for macOS updates can skip the password prompt once (`fdesetup authrestart`), but both users still need to log back in.
+- An outside uptime monitor alerts you by push notification or email if the Mac goes quiet, since a downed Mac can't iMessage you.
+- Nightly encrypted backups to an offsite location.
 
 ---
 
@@ -332,7 +390,8 @@ Later, if you set up option B, a payment like this (verified handle, normal amou
 Estimates assume one developer working with AI coding help, part-time.
 
 ### Phase 0 — Foundations (2–3 weeks)
-- Repo, infra, database schema, audit log.
+- Mac setup: "Assistant" macOS user + Apple ID, power settings, tunnel, backups, health check.
+- Repo, database schema, audit log.
 - Secret broker skeleton, encrypted saved browser sessions, masking of anything sent to the model, kill switch.
 - iMessage chat + Claude orchestrator.
 - Onboarding interview that fills the profile (people, vehicles, work, accounts, places).
@@ -342,7 +401,8 @@ Estimates assume one developer working with AI coding help, part-time.
 ### Phase 1 — Awareness (3–4 weeks)
 - Read access to all email accounts + calendar. Ingest bills, receipts and notices.
 - WhatsApp as a second chat channel.
-- Amex via Plaid (read-only, OAuth). Detect recurring bills and subscriptions.
+- Amex via Plaid (read-only, OAuth), 24 months of history. Detect recurring bills and subscriptions, and confirm the payee list with you.
+- Index your iMessage history (read-only) for context.
 - VIN decode, recall checks, renewal tracking.
 - Daily brief + reminders. Bill-due alerts (tier 1 and 4 payments).
 - **Done when:** a month passes with no missed bill or renewal, and I didn't have to tell it about any of them.
@@ -378,12 +438,12 @@ Estimates assume one developer working with AI coding help, part-time.
 | Item | Estimate |
 |---|---|
 | LLM usage (chat + background jobs) | $20–100, depending on volume and model mix |
-| Hosting (VM + Postgres + backups) | $10–40 |
-| Finance aggregator | SimpleFIN ~$15/year · Plaid varies by product and volume |
+| Hosting | $0 on your Mac · ~$5 for offsite backups · one-time ~$60–120 for a battery backup (UPS) |
+| Plaid | Free tier may cover a few accounts. Liabilities may cost extra; check your plan. |
 | Connected-car API | Free tier to low tens of dollars, depending on provider and vehicle count |
-| iMessage provider | ~$40–100 (hosted) · ~$0 with BlueBubbles on your own Mac |
+| iMessage | $0 (bridge on your Mac) |
 | WhatsApp Business API | Likely ~$0 at personal volume (Meta gives a monthly free allowance; pricing changes in 2026, so check) |
-| **Total** | **~$80–250/month** (less with BlueBubbles) |
+| **Total** | **~$30–150/month**, mostly AI usage |
 
 Verify pricing for each provider before committing; these change often.
 
@@ -418,14 +478,14 @@ Verify pricing for each provider before committing; these change often.
 
 ## 10. Open questions (need your input)
 
-1. ~~**Phone:**~~ iPhone. **Do you also have a Mac that could stay on?** That's the only way to let the assistant read your iMessage history or send iMessages as you. Without one, it can still talk to you over iMessage through a hosted provider.
+1. ~~**Phone / Mac:**~~ iPhone + a Mac that stays on. **Which Mac and macOS version?** And is it OK to create a separate Apple ID for the assistant?
 2. ~~**Main interface:**~~ iMessage, then WhatsApp. **Email providers:** which services are your accounts on (Gmail, Outlook, iCloud, other), and which are personal vs. business? **Calendar:** iCloud, Google or Outlook?
 3. **Personal vs. business:** Should it cover your work and business (email, vehicles, bills), or keep strictly personal with business later?
 4. **Who else:** Just you, or family members too (shared vehicles, household bills)?
 5. **Money comfort level:** Is "one-tap approve every payment" acceptable at first? What's a per-payment amount you'd be fine with it paying on its own later?
 6. ~~**Banks:**~~ Amex. **Billers:** which utilities, insurance companies and lenders do you pay? ~~**Password manager:**~~ Apple Passwords (logins go through Secure Entry with Face ID). **Assistant's card:** a virtual card service or an Amex Additional Card? (See [SECURE-CREDENTIALS.md](SECURE-CREDENTIALS.md) §12.)
 7. **Vehicles:** Makes and model years? (Determines connected-car API coverage.)
-8. **Hosting:** Cloud VM, or a machine at home?
+8. ~~**Hosting:**~~ Your Mac. **Plaid:** which plan does the dashboard show, and is American Express listed as available?
 9. ~~**Paying people:**~~ Venmo, Apple Cash, PayPal. Is "two taps to confirm" fine, or do you want the hands-free PayPal Business setup?
 10. **Build:** Are you building this yourself (with Claude Code), hiring, or a mix?
 
