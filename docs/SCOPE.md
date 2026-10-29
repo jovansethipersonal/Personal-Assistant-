@@ -13,6 +13,7 @@ You should be able to say things like:
 - "When is the registration due on the truck, and can you renew it?"
 - "Did the electric bill go up this month? Pay it if it looks normal."
 - "Book an oil change for the Tahoe somewhere near where I'll be Thursday."
+- "Pay Meinecke $30 for the haircut." (It knows Meinecke is your barber, that you pay him by Venmo, and his handle.)
 - "What did I spend on fuel last quarter?"
 - "Remind me to call Mike when I'm leaving the office."
 
@@ -66,6 +67,19 @@ Each area lists what the assistant **knows** (context) and **does** (actions), p
 
 **Does:** makes sure nothing is missed, flags anomalies, pays bills (see §5 for how), cancels unwanted subscriptions, answers spending questions, prepares tax-relevant summaries.
 
+#### Paying people (Venmo, Zelle, Cash App, PayPal)
+
+"Pay Meinecke $30 for haircut" needs four things the assistant has to know or work out:
+
+| Step | What it resolves | How it knows |
+|---|---|---|
+| **Who** | "Meinecke" → the person you mean | Contacts + memory. Uses context to pick the right one: "haircut" means your barber, not the Meineke car shop. Asks if it's still unsure. |
+| **How** | You pay this person by Venmo | Learned from past payments (Venmo receipt emails, bank transactions) or told once and remembered |
+| **Where** | Their Venmo handle | Taken only from a past successful payment or from you directly, never from a text or email (see §3) |
+| **What's normal** | Usually $30, note "haircut", about every 3 weeks | Payment history |
+
+Then it makes the payment the safest way that payment app allows (see §5.1), confirms it went through, and logs it.
+
 ### 2.4 Places, routines and location
 
 | Knows | Source |
@@ -117,6 +131,7 @@ Every action type has a level. Everything starts at L1 or L2. I promote action t
 **Policy rules (code, not prompt):**
 
 - Payee must be on the **known payee list**. New payees always require L2 approval and are verified against a source I control (prior statements), never just an email.
+- **Person-to-person payments can't be reversed**, so they stay at L2 by default. A payment handle (Venmo, Cash App, PayPal, Zelle phone or email) is trusted only if a past payment to it succeeded or I entered it myself. If anyone says "I have a new Venmo", the assistant asks me before paying it.
 - Per-transaction, per-day and per-month spend caps.
 - Amount anomaly (for example more than 20% above typical) → drop back to L2.
 - Anything irreversible (sending to a new contact, cancelling insurance, wire transfers) → always L2 or higher.
@@ -242,6 +257,27 @@ The monthly bill workflow:
 4. Not on autopay → pay per the autonomy level for that payee.
 5. Confirm it cleared (transaction appears) → update the timeline.
 
+### 5.1 Paying people (Venmo and similar)
+
+**The constraint:** Venmo retired its own developer and payouts APIs for new developers. Zelle and Apple Cash have no consumer APIs. Cash App has no public API for sending money between people. So "pay Meinecke from *your* Venmo" can't be a fully hands-off API call.
+
+| Option | How it works | Your effort | Verdict |
+|---|---|---|---|
+| **A. Prefilled payment** (recommended) | The assistant sends a link that opens Venmo with Meinecke's handle, $30 and "Haircut" already filled in. You check it and tap **Pay**. Cash App (`cash.app/$tag/30`) and PayPal (`paypal.me/name/30`) links work the same way. | One or two taps | Uses Venmo's official payment links. Money comes from your own Venmo. You see exactly what's being sent. |
+| **B. PayPal Payouts to a Venmo handle** | PayPal's Payouts API can send to a Venmo handle (US only). The money comes from a **PayPal Business** balance you top up. | None after setup | Truly hands-free, and the balance you top up is a hard cap. Downsides: needs a PayPal Business account, payments show as coming from the business, there are fees, and it mixes personal and business money. Check current eligibility with PayPal first. |
+| **C. Automate the Venmo app or website** | A browser or phone-control agent logs into your Venmo and taps through | None | **Not recommended.** Likely breaks Venmo's terms, trips fraud checks and 2FA, and can get your account frozen. |
+| **D. Zelle through your bank** | No API. Prepare the details; you send in your bank app. | A few taps | Fallback for people who only take Zelle. |
+
+**Flow for "Pay Meinecke $30 for haircut" (option A):**
+
+1. Work out who Meinecke is, his method (Venmo) and his verified handle from memory.
+2. Check the policy: known handle, amount close to his usual $30.
+3. Reply: *"Venmo $30 to @Meinecke-Barber, note 'Haircut'? [Open in Venmo]"*. One tap opens Venmo prefilled, a second tap pays.
+4. Watch for Venmo's "You paid…" receipt email to confirm it went through, then log it to the timeline.
+5. If no receipt shows up within an hour, remind me once.
+
+Later, if you set up option B, a payment like this (verified handle, normal amount) can move to L3 and happen with no taps at all.
+
 ---
 
 ## 6. Phased roadmap
@@ -271,13 +307,15 @@ Estimates assume one developer working with AI coding help, part-time.
 ### Phase 3 — Actions with approval (4–6 weeks)
 - Approval queue + push notifications in the PWA.
 - Capped virtual cards + browser agent for paying bills and renewals.
+- Paying people: "Pay Meinecke $30" → prefilled Venmo, Cash App or PayPal link, confirmed from the receipt email (§5.1 option A).
 - Calendar writes, email drafts and sends (with approval).
 - Booking appointments (service shops, etc.) via APIs or browser.
-- **Done when:** I approve a bill payment and a car service booking from my phone in one tap each.
+- **Done when:** I approve a bill payment and a car service booking from my phone in one tap each, and "Pay Meinecke $30 for haircut" takes me two taps.
 
 ### Phase 4 — Earned autonomy (ongoing)
 - Per-action autonomy promotion (L2 → L3 → L4) with limits.
 - Weekly digest of everything done.
+- Optional: hands-free payments to people via PayPal Payouts (§5.1 option B).
 - Voice interface. Simple outbound phone calls.
 - **Done when:** most routine admin happens without me, and the weekly digest is the main thing I read.
 
@@ -305,6 +343,7 @@ Verify pricing for each provider before committing; these change often.
 | Risk | Mitigation |
 |---|---|
 | Wrong or fraudulent payment | Known-payee list, card-level caps, anomaly checks, approvals, kill switch |
+| Paying the wrong person (lookalike handles, "my Venmo changed" scams) | Handles trusted only from past successful payments or my own input; changed handles always need my approval; I always see the handle before I tap Pay |
 | Prompt injection (malicious email or web page) | Untrusted-content tagging; money tools require verified payees; no auto-action on email instructions |
 | Data breach (this system holds everything) | Single tenant, encryption, vault for secrets, MFA, minimal retention of raw data, no secrets in model context |
 | Wrong facts in memory | Provenance + confidence on every fact, confirmation for low-confidence facts, editable memory |
@@ -334,14 +373,19 @@ Verify pricing for each provider before committing; these change often.
 6. **Banks and billers:** Which banks, cards, utilities, insurance and lenders? (Determines which integrations are actually available.)
 7. **Vehicles:** Makes and model years? (Determines connected-car API coverage.)
 8. **Hosting:** Cloud VM, or a machine at home?
-9. **Build:** Are you building this yourself (with Claude Code), hiring, or a mix?
+9. **Paying people:** Which apps do you use (Venmo, Zelle, Cash App, PayPal, Apple Cash)? Is "two taps to confirm" fine, or do you want the hands-free PayPal Business setup?
+10. **Build:** Are you building this yourself (with Claude Code), hiring, or a mix?
 
 ---
 
 ## Appendix A — Core data model (first cut)
 
 ```
-Person      (id, name, relationship, contact_methods, notes)
+Person      (id, name, aliases, relationship, role, contact_methods,
+             default_payment_handle_id, notes)
+PaymentHandle (id, person_id, app [venmo|zelle|cashapp|paypal|applecash],
+             handle, verified, verification_source, first_paid_at,
+             last_paid_at, typical_amount, typical_note)
 Vehicle     (id, vin, year, make, model, trim, plate, state, owner_id,
              registration_due, inspection_due, insurance_policy_id,
              loan_account_id, odometer, odometer_as_of)
