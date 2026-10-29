@@ -50,6 +50,16 @@ Tier D is deliberate. Those accounts can reset everything else, so the assistant
 - **The assistant gets its own separate vault:** a dedicated 1Password vault read through a service account that can see *only that vault* (Bitwarden Secrets Manager also works). You move items into it one at a time, on purpose.
 - **Revoking is instant:** delete the service account token and the assistant loses every stored credential at once. This is part of the kill switch.
 
+### 4.1 Connecting a password manager
+
+| Password manager | Can the assistant connect to it? | How |
+|---|---|---|
+| **Apple Passwords / iCloud Keychain** | ❌ No API for servers or agents | Move only the logins you choose into the assistant vault with **Export Data to Another App** in the Passwords app (iOS 26 / macOS Tahoe). It's encrypted and needs Face ID, unlike the old unencrypted CSV export. Check that the receiving app supports it; if not, copy the handful of logins by hand. |
+| **1Password** (recommended) | ✅ | **Service account** limited to the one "Assistant" vault, read-only, used by the broker through the 1Password SDK. Optionally, 1Password's **Secure Agentic Autofill** (early access, with Browserbase) fills logins into an agent's browser after you approve each request in the 1Password app, which is the same pattern as our broker. |
+| **Bitwarden** | ✅ | **Secrets Manager** or its **Agent Access SDK** (credentials released on demand, with human approval) used by the broker. Bitwarden also ships an MCP server, but tools that hand the password back to the AI model break the core rule (§2), so use it only behind the broker. |
+
+**Never:** give the assistant your master password or access to all vaults, leave CSV exports lying around, or scrape the Mac keychain with unofficial tools.
+
 ---
 
 ## 5. Secure Entry: you type it, the assistant never sees it
@@ -149,6 +159,6 @@ What you did: **two Face IDs.** The AI model never saw a password, code, license
 
 ## 12. Open questions
 
-1. Is **Apple Passwords** your password manager, or do you also use 1Password, Bitwarden or something else?
+1. Is **Apple Passwords** your password manager, or do you also use 1Password, Bitwarden or something else? (Apple Passwords alone means adding a 1Password or Bitwarden vault just for the assistant, see §4.1.)
 2. Would you set up a **virtual card service** (option 1) or an **Amex Additional Card** (option 2) for the assistant?
 3. Do you have a **separate business Amex** or bank account that should stay out of scope (or be handled separately)?
