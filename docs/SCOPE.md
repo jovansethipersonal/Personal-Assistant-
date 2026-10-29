@@ -37,7 +37,7 @@ You should be able to say things like:
 | **Paying people** | Venmo (main), Apple Cash (occasionally), PayPal (rarely) |
 | **Home base** | A Mac that can stay on (runs the whole system to start, see §4.3) |
 | **Bank data** | Existing Plaid developer account (status to check, see §2.3) |
-| **Password manager** | Apple Passwords |
+| **Password manager** | Apple Passwords (source of truth; the assistant keeps copies of the bill-site logins you add) |
 
 ---
 
@@ -291,9 +291,10 @@ flowchart TB
 
 **Security** (full design in [SECURE-CREDENTIALS.md](SECURE-CREDENTIALS.md))
 - **The AI model never sees a password, card number or code.** It refers to secrets by name, and a separate secret broker (plain code) types them in, only on the right site and only for an active task.
-- Passwords you don't want stored are entered through **Secure Entry**: a Face ID page on your iPhone that autofills codes from Messages and passwords from Apple Passwords, encrypted on the phone.
+- **Saved logins for any bill site you name.** You add each one once through **Secure Entry**: a Face ID page on your iPhone where you fill the login from Apple Passwords, encrypted on the phone. From then on, the broker logs in by itself, only on that site.
+- **Verification codes are handled hands-free where possible:** text-message codes arrive on the Mac through Text Message Forwarding, email codes are read from your inbox, and authenticator codes are generated. Only push approvals need you.
 - Your Amex login, Apple ID, main email passwords and Venmo/PayPal logins are **never** given to the assistant. It uses revocable tokens or prepares actions for you to finish.
-- Your passwords stay in **Apple Passwords**. Apple has no API for it, so the assistant asks you to fill logins through Secure Entry and saves the browser session, so prompts are rare. A small separate 1Password vault is optional later, for sites you want handled hands-free. Encrypted database. MFA on everything.
+- Your passwords stay in **Apple Passwords**, which no other program can read. The assistant keeps its own copies of only the logins you add, in the macOS Keychain on the Mac (or 1Password). Encrypted database. MFA on everything.
 - **Prompt-injection defense**: content from email and the web is tagged untrusted. Untrusted content can inform but can't authorize. Payment and new-recipient tools require the payee to match the known payee list.
 - Single-tenant: it's your data, on your own Mac (§4.3).
 
@@ -310,7 +311,7 @@ flowchart TB
 | Location | OwnTracks or Overland (iOS) → HTTPS endpoint | Already built, runs in the background |
 | Email | Gmail API / Microsoft Graph / IMAP, one connection per account | Covers all your accounts |
 | Browser agent | Playwright on the Mac, in its own sandboxed user/profile | Home internet connection gets blocked less than cloud servers; screenshots for the audit log |
-| Secrets | Secret broker + Secure Entry with Apple Passwords; optional 1Password service account later | No new password manager needed to start |
+| Saved logins | Secret broker + assistant vault in the Mac Keychain (1Password optional), added via Secure Entry from Apple Passwords | Hands-free logins, no new password manager needed |
 | Hosting | **Your Mac** + Cloudflare Tunnel or Tailscale for webhooks and the web app, nightly encrypted offsite backups | No hosting bill, data stays home |
 | App secrets | macOS Keychain of the "Assistant" macOS user | Separate from your Apple Passwords |
 
@@ -346,12 +347,13 @@ There is **no consumer API to drive your bank's bill pay**, and scripting a bank
 | Tier | Mechanism | Covers | Risk |
 |---|---|---|---|
 | **1. Autopay, supervised** | Billers' own autopay. The assistant checks it's on, watches each amount, and alerts or stops on anomalies | Most recurring bills (utilities, phone, insurance, loans, cards) | Lowest |
+| **1b. Pay on the biller's site** | The broker logs in with the saved login and pays with the **card or bank account already on file** with that biller | Bills without autopay, or when you want each payment checked before it goes | Low; known payee, known site, follows the autonomy policy |
 | **2. Capped card for the assistant** | A merchant-locked virtual card funded from Amex Rewards Checking (e.g. Privacy.com), or an Amex Additional Card with a spending limit. The browser agent pays on the biller's site and the secret broker types in the card number. See [SECURE-CREDENTIALS.md §7](SECURE-CREDENTIALS.md). | Bills without autopay, one-off payments, renewals (DMV, tolls) | **Hard cap enforced by the card, not the AI** |
 | **2b. Apple Pay** | The assistant prepares the checkout, you finish with Face ID | Online purchases where you'd use Apple Pay anyway | You confirm every one |
 | **3. Bank-to-biller APIs** | Debt-payment APIs (e.g. Method Financial) or ACH via Plaid Transfer | Credit cards, loans; more of a business setup | Medium; needs approval flow |
 | **4. Prepared for me** | Assistant fills everything in, I tap pay in my bank app | Anything else | None |
 
-**Recommendation:** Start with tier 1 + tier 4 (phase 1), add tier 2 (phase 3). Treat tier 3 as optional.
+**Recommendation:** Start with tier 1 + tier 4 (phase 1). Add tier 1b once saved logins work (phase 2–3), then tier 2 for sites with no payment method on file. Treat tier 3 as optional.
 
 The monthly bill workflow:
 
@@ -407,15 +409,18 @@ Estimates assume one developer working with AI coding help, part-time.
 - Daily brief + reminders. Bill-due alerts (tier 1 and 4 payments).
 - **Done when:** a month passes with no missed bill or renewal, and I didn't have to tell it about any of them.
 
-### Phase 2 — Places and routines (2–3 weeks)
+### Phase 2 — Saved logins and places (4–5 weeks)
+- "Add my Duke Energy account": Secure Entry from Apple Passwords, test login, saved in the assistant vault.
+- Broker logs in to bill sites by itself: saved browser sessions, text-message codes via the Mac, email and authenticator codes.
+- Reads balances, due dates and statements from each bill site (read-only for now).
 - Location ingest. Place clustering (home, work, frequent stops).
 - Location-triggered reminders. Mileage log per vehicle.
 - Routine model (typical week) used for scheduling suggestions.
-- **Done when:** "Remind me when I leave work" works, and it can tell me where I usually fuel up.
+- **Done when:** I've added my bill sites once, and the assistant tells me every balance and due date without asking me for anything. "Remind me when I leave work" works too.
 
 ### Phase 3 — Actions with approval (4–6 weeks)
 - Approval queue + push notifications in the PWA.
-- Secure Entry (Face ID page for codes and passwords) + broker typing secrets into the browser.
+- Paying on bill sites with the card or account on file, using the saved logins.
 - Capped card for the assistant + browser agent for paying bills and renewals, with every charge reconciled.
 - Paying people: "Pay Meinecke $30" → prefilled Venmo, Cash App or PayPal link, confirmed from the receipt email (§5.1 option A).
 - Calendar writes, email drafts and sends (with approval).
@@ -483,7 +488,7 @@ Verify pricing for each provider before committing; these change often.
 3. **Personal vs. business:** Should it cover your work and business (email, vehicles, bills), or keep strictly personal with business later?
 4. **Who else:** Just you, or family members too (shared vehicles, household bills)?
 5. **Money comfort level:** Is "one-tap approve every payment" acceptable at first? What's a per-payment amount you'd be fine with it paying on its own later?
-6. ~~**Banks:**~~ Amex. **Billers:** which utilities, insurance companies and lenders do you pay? ~~**Password manager:**~~ Apple Passwords (logins go through Secure Entry with Face ID). **Assistant's card:** a virtual card service or an Amex Additional Card? (See [SECURE-CREDENTIALS.md](SECURE-CREDENTIALS.md) §12.)
+6. ~~**Banks:**~~ Amex. **Billers:** which utilities, insurance companies and lenders do you pay? ~~**Password manager:**~~ Apple Passwords. **Assistant vault:** Mac Keychain (free) or 1Password? **Text Message Forwarding** to the Mac OK? **Assistant's card:** a virtual card service or an Amex Additional Card? (See [SECURE-CREDENTIALS.md](SECURE-CREDENTIALS.md) §12.)
 7. **Vehicles:** Makes and model years? (Determines connected-car API coverage.)
 8. ~~**Hosting:**~~ Your Mac. **Plaid:** which plan does the dashboard show, and is American Express listed as available?
 9. ~~**Paying people:**~~ Venmo, Apple Cash, PayPal. Is "two taps to confirm" fine, or do you want the hands-free PayPal Business setup?
