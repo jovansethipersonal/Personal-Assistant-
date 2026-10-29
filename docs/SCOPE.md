@@ -25,6 +25,15 @@ You should be able to say things like:
 4. **Everything is auditable and editable.** I can see what it knows and where each fact came from, and correct it. Every action it takes is logged.
 5. **Outside content can't give it orders.** Emails, web pages, PDFs and texts are data. "Pay this invoice" in an email never triggers a payment on its own.
 
+### Your setup (known so far)
+
+| | |
+|---|---|
+| **Phone** | iPhone |
+| **Messaging** | Messages (iMessage), WhatsApp, Instagram |
+| **Email** | Several accounts (providers to be confirmed) |
+| **Paying people** | Venmo (at least) |
+
 ---
 
 ## 2. Capability map
@@ -88,17 +97,40 @@ Then it makes the payment the safest way that payment app allows (see §5.1), co
 | Typical schedule and commute | Location + calendar |
 | Where I am now (when I allow it) | Phone location stream |
 
-Note: Google Maps Timeline moved to on-device storage and no longer has a usable cloud history, so **location has to be collected by us**: a small companion app, or an existing open-source tracker like OwnTracks or the Home Assistant companion app that posts to our server.
+Note: Google Maps Timeline moved to on-device storage and no longer has a usable cloud history, so **location has to be collected by us**. On iPhone, the free OwnTracks or Overland apps run in the background and post your location to our server, with no custom app needed. Apple Shortcuts automations ("when I arrive at / leave a place") can add exact arrive and leave events.
 
 **Does:** location-based reminders ("when I leave work"), plans errands along existing routes, suggests appointment times and places that fit my routine, logs mileage.
 
-### 2.5 Calendar, email and communications
+### 2.5 Messaging, email and calendar
+
+Each messaging app could play three different roles, and what's possible varies a lot between apps and roles:
+
+| App | 1. You talk to the assistant | 2. It reads your conversations for context | 3. It sends messages as you |
+|---|---|---|---|
+| **Messages (iMessage)** | ✅ The assistant gets its own iMessage contact through an iMessage API provider (Sendblue, LoopMessage, Blooio, etc.), or BlueBubbles on a Mac you own | ⚠️ Only from a Mac signed in to your Apple ID, which reads the local Messages history. Apple has no cloud API. | ⚠️ Only from that Mac. Always needs your approval at first. |
+| **WhatsApp** | ✅ Official WhatsApp Business Cloud API. The assistant gets its own WhatsApp number. | ❌ No official API for personal chats. Unofficial "linked device" tools break WhatsApp's terms and can get your number banned. | ❌ Same |
+| **Instagram** | ⚠️ Meta's messaging API works only for Business and Creator accounts | ❌ No API for personal DMs | ❌ No |
+| **Email (all your accounts)** | ✅ Email it or forward things to it | ✅ Gmail API, Microsoft Graph, or IMAP (iCloud, Yahoo, others) for each account | ✅ From the right account, with approval at first |
+
+**Recommendation:**
+
+- **Main channel: iMessage.** The assistant shows up as a contact in Messages and you text it like a person. Payment links (like the prefilled Venmo payment) open straight in the app. A hosted iMessage provider needs no Mac. BlueBubbles is cheaper but needs a Mac that stays on.
+- **Second channel: WhatsApp**, through the official API. It's the same assistant with the same memory. WhatsApp lets a business number message you freely only within 24 hours of your last message, and after that only with pre-approved templates. That makes iMessage the better channel for reminders the assistant starts on its own.
+- **Instagram: skip for now.** If something there matters, share it to the assistant with the iPhone share sheet.
+- **Voice: Siri.** An Apple Shortcut ("Hey Siri, ask Assistant…") sends what you say to the assistant and reads the answer back.
+- **Money approvals use Face ID.** Payments that need approval are confirmed in the approval app with Face ID (a passkey), not by texting back "yes". A text reply is easier to fake or to send by accident. Venmo payments are confirmed in Venmo itself.
+
+**Several email accounts:**
+
+- Connect each account separately and label it (personal, business, old/shopping). The assistant reads all of them for bills, receipts, renewals and notices, and skips duplicate copies.
+- When replying, it uses the account the conversation came in on. For a new email, it uses the account you normally use with that person, and asks if it isn't clear.
+- Contacts and calendar come from wherever they live: iCloud (CardDAV/CalDAV with an app-specific password), Google, or Microsoft.
 
 | Knows | Source |
 |---|---|
-| Schedule, commitments, travel | Google / Microsoft calendar APIs |
-| Inbox: bills, receipts, confirmations, notices | Gmail / Outlook APIs |
-| Who matters and how I talk to them | Email + contacts |
+| Schedule, commitments, travel | iCloud / Google / Microsoft calendars |
+| Bills, receipts, confirmations, notices | All connected email accounts |
+| Who matters and how you talk to them | Contacts, email, and iMessage history if a Mac is available |
 
 **Does:** daily brief, schedules and reschedules, drafts replies (sends only with approval at first), files receipts and documents automatically.
 
@@ -144,9 +176,10 @@ Every action type has a level. Everything starts at L1 or L2. I promote action t
 ```mermaid
 flowchart TB
     subgraph Interfaces
-        CHAT[Chat: SMS / Telegram / iMessage bridge]
-        VOICE[Voice]
-        APP[Mobile app / PWA:<br/>approvals, dashboard, location]
+        CHAT[Chat: iMessage + WhatsApp]
+        VOICE[Voice: Siri Shortcut]
+        APP[Web app on iPhone:<br/>Face ID approvals, dashboard]
+        LOCAPP[OwnTracks / Shortcuts:<br/>location]
     end
 
     subgraph Core
@@ -175,7 +208,10 @@ flowchart TB
     VAULT[[Secrets vault]]
     AUDIT[[Audit log]]
 
-    Interfaces --> ORCH
+    CHAT --> ORCH
+    VOICE --> ORCH
+    APP --> ORCH
+    LOCAPP --> LOC
     SCHED --> ORCH
     ORCH <--> Memory
     ORCH --> POLICY
@@ -190,9 +226,10 @@ flowchart TB
 ### 4.1 Components
 
 **Interfaces**
-- **Chat** is the main interface. Telegram is the easiest to build on. SMS via Twilio works everywhere. iMessage needs a Mac bridge and is fragile.
-- **Companion app / PWA** handles push-notification approvals, the "what I know about you" page, the action log, and location reporting.
-- **Voice** (later): phone number you can call, or a voice mode in the app.
+- **Chat** is the main interface: iMessage first, WhatsApp second (see §2.5). Both feed the same conversation and memory.
+- **Web app on iPhone** (added to the home screen, so it can send push notifications) handles Face ID approvals, the "what I know about you" page and the action log.
+- **Location** comes from OwnTracks or Overland plus Shortcuts automations. No custom iOS app.
+- **Voice:** a Siri Shortcut that sends what you say to the assistant.
 
 **Agent orchestrator**
 - Claude via the Claude Agent SDK / API with tool use. Tools exposed as MCP servers so each integration is a separate, testable module.
@@ -227,9 +264,10 @@ flowchart TB
 | Agent | Claude Agent SDK + MCP tool servers | Tool use, subagents, browser and computer use |
 | Database | Postgres + pgvector | One store for structured data and embeddings |
 | Jobs | Postgres-backed queue + cron (Temporal if it grows) | Keeps it simple at first |
-| Chat | Telegram bot first, Twilio SMS second | Fastest path |
-| App | PWA (Next.js) | Push approvals, no app store needed |
-| Location | OwnTracks or Home Assistant app → HTTPS endpoint | Already built, works on iOS and Android |
+| Chat | iMessage API provider (or BlueBubbles on a Mac) + WhatsApp Business Cloud API | Where you already message |
+| App | PWA (Next.js) with passkeys | Face ID approvals and push on iPhone, no App Store needed |
+| Location | OwnTracks or Overland (iOS) → HTTPS endpoint | Already built, runs in the background |
+| Email | Gmail API / Microsoft Graph / IMAP, one connection per account | Covers all your accounts |
 | Browser agent | Playwright in an isolated container | Mature, scriptable, screenshots for the audit log |
 | Secrets | 1Password Service Accounts | Good SDK, you probably already use a password manager |
 | Hosting | Single small cloud VM or Fly.io, daily encrypted backups | Low cost, single tenant |
@@ -286,13 +324,14 @@ Estimates assume one developer working with AI coding help, part-time.
 
 ### Phase 0 — Foundations (2–3 weeks)
 - Repo, infra, database schema, secrets vault, audit log.
-- Telegram chat + Claude orchestrator.
+- iMessage chat + Claude orchestrator.
 - Onboarding interview that fills the profile (people, vehicles, work, accounts, places).
 - "What I know about you" page (view and edit facts).
 - **Done when:** I can ask "What cars do I have and when is each registration due?" and get correct answers.
 
 ### Phase 1 — Awareness (3–4 weeks)
-- Gmail + Calendar read access. Ingest bills, receipts and notices.
+- Read access to all email accounts + calendar. Ingest bills, receipts and notices.
+- WhatsApp as a second chat channel.
 - Finance aggregator (read-only). Detect recurring bills and subscriptions.
 - VIN decode, recall checks, renewal tracking.
 - Daily brief + reminders. Bill-due alerts (tier 1 and 4 payments).
@@ -331,8 +370,9 @@ Estimates assume one developer working with AI coding help, part-time.
 | Hosting (VM + Postgres + backups) | $10–40 |
 | Finance aggregator | SimpleFIN ~$15/year · Plaid varies by product and volume |
 | Connected-car API | Free tier to low tens of dollars, depending on provider and vehicle count |
-| SMS / voice (if used) | $5–20 |
-| **Total** | **~$50–200/month** |
+| iMessage provider | ~$40–100 (hosted) · ~$0 with BlueBubbles on your own Mac |
+| WhatsApp Business API | Likely ~$0 at personal volume (Meta gives a monthly free allowance; pricing changes in 2026, so check) |
+| **Total** | **~$80–250/month** (less with BlueBubbles) |
 
 Verify pricing for each provider before committing; these change often.
 
@@ -349,6 +389,7 @@ Verify pricing for each provider before committing; these change often.
 | Wrong facts in memory | Provenance + confidence on every fact, confirmation for low-confidence facts, editable memory |
 | Browser automation breaks or violates terms | APIs first; browser only for portals that allow it; screenshots + failure alerts; never script bank logins |
 | Over-reliance (silent failures) | Weekly digest, "things I couldn't do" alerts, health checks on every integration |
+| Assistant sends a message as you that you didn't intend | Sending as you (email, iMessage) needs approval until you promote it, per contact; it never sends as you in WhatsApp or Instagram |
 | Integration sprawl | Each integration is its own MCP module with tests; add only when a real task needs it |
 
 ---
@@ -365,8 +406,8 @@ Verify pricing for each provider before committing; these change often.
 
 ## 10. Open questions (need your input)
 
-1. **Phone:** iPhone or Android? (Affects location, notifications, iMessage.)
-2. **Main interface:** Text/SMS, Telegram, iMessage, voice, or an app?
+1. ~~**Phone:**~~ iPhone. **Do you also have a Mac that could stay on?** That's the only way to let the assistant read your iMessage history or send iMessages as you. Without one, it can still talk to you over iMessage through a hosted provider.
+2. ~~**Main interface:**~~ iMessage, then WhatsApp. **Email providers:** which services are your accounts on (Gmail, Outlook, iCloud, other), and which are personal vs. business? **Calendar:** iCloud, Google or Outlook?
 3. **Personal vs. business:** Should it cover your work and business (email, vehicles, bills), or keep strictly personal with business later?
 4. **Who else:** Just you, or family members too (shared vehicles, household bills)?
 5. **Money comfort level:** Is "one-tap approve every payment" acceptable at first? What's a per-payment amount you'd be fine with it paying on its own later?
