@@ -259,7 +259,7 @@ flowchart TB
 - **The AI model never sees a password, card number or code.** It refers to secrets by name, and a separate secret broker (plain code) types them in, only on the right site and only for an active task.
 - Passwords you don't want stored are entered through **Secure Entry**: a Face ID page on your iPhone that autofills codes from Messages and passwords from Apple Passwords, encrypted on the phone.
 - Your Amex login, Apple ID, main email passwords and Venmo/PayPal logins are **never** given to the assistant. It uses revocable tokens or prepares actions for you to finish.
-- The assistant has its own vault (a dedicated 1Password vault via a service account), separate from your Apple Passwords. Encrypted database. MFA on everything.
+- Your passwords stay in **Apple Passwords**. Apple has no API for it, so the assistant asks you to fill logins through Secure Entry and saves the browser session, so prompts are rare. A small separate 1Password vault is optional later, for sites you want handled hands-free. Encrypted database. MFA on everything.
 - **Prompt-injection defense**: content from email and the web is tagged untrusted. Untrusted content can inform but can't authorize. Payment and new-recipient tools require the payee to match the known payee list.
 - Single-tenant: it's your data, on infrastructure you control.
 
@@ -276,7 +276,7 @@ flowchart TB
 | Location | OwnTracks or Overland (iOS) → HTTPS endpoint | Already built, runs in the background |
 | Email | Gmail API / Microsoft Graph / IMAP, one connection per account | Covers all your accounts |
 | Browser agent | Playwright in an isolated container | Mature, scriptable, screenshots for the audit log |
-| Secrets | Dedicated 1Password vault via a service account + secret broker | Separate from your personal Apple Passwords, revocable in one step |
+| Secrets | Secret broker + Secure Entry with Apple Passwords; optional 1Password service account later | No new password manager needed to start |
 | Hosting | Single small cloud VM or Fly.io, daily encrypted backups | Low cost, single tenant |
 
 ---
@@ -333,7 +333,7 @@ Estimates assume one developer working with AI coding help, part-time.
 
 ### Phase 0 — Foundations (2–3 weeks)
 - Repo, infra, database schema, audit log.
-- Assistant vault + secret broker skeleton, masking of anything sent to the model, kill switch.
+- Secret broker skeleton, encrypted saved browser sessions, masking of anything sent to the model, kill switch.
 - iMessage chat + Claude orchestrator.
 - Onboarding interview that fills the profile (people, vehicles, work, accounts, places).
 - "What I know about you" page (view and edit facts).
@@ -423,7 +423,7 @@ Verify pricing for each provider before committing; these change often.
 3. **Personal vs. business:** Should it cover your work and business (email, vehicles, bills), or keep strictly personal with business later?
 4. **Who else:** Just you, or family members too (shared vehicles, household bills)?
 5. **Money comfort level:** Is "one-tap approve every payment" acceptable at first? What's a per-payment amount you'd be fine with it paying on its own later?
-6. ~~**Banks:**~~ Amex. **Billers:** which utilities, insurance companies and lenders do you pay? **Password manager:** Apple Passwords only, or something else too? **Assistant's card:** a virtual card service or an Amex Additional Card? (See [SECURE-CREDENTIALS.md](SECURE-CREDENTIALS.md) §12.)
+6. ~~**Banks:**~~ Amex. **Billers:** which utilities, insurance companies and lenders do you pay? ~~**Password manager:**~~ Apple Passwords (logins go through Secure Entry with Face ID). **Assistant's card:** a virtual card service or an Amex Additional Card? (See [SECURE-CREDENTIALS.md](SECURE-CREDENTIALS.md) §12.)
 7. **Vehicles:** Makes and model years? (Determines connected-car API coverage.)
 8. **Hosting:** Cloud VM, or a machine at home?
 9. ~~**Paying people:**~~ Venmo, Apple Cash, PayPal. Is "two taps to confirm" fine, or do you want the hands-free PayPal Business setup?
