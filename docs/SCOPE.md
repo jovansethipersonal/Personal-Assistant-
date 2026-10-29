@@ -32,7 +32,9 @@ You should be able to say things like:
 | **Phone** | iPhone |
 | **Messaging** | Messages (iMessage), WhatsApp, Instagram |
 | **Email** | Several accounts (providers to be confirmed) |
-| **Paying people** | Venmo (at least) |
+| **Banking and cards** | Amex (cards + banking) |
+| **Paying in stores and online** | Apple Pay |
+| **Paying people** | Venmo (main), Apple Cash (occasionally), PayPal (rarely) |
 
 ---
 
@@ -69,14 +71,14 @@ Each area lists what the assistant **knows** (context) and **does** (actions), p
 
 | Knows | Source |
 |---|---|
-| Accounts, balances, transactions | Aggregator: Plaid (business-grade) or SimpleFIN / Teller (personal-friendly, read-only) |
+| Accounts, balances, transactions | **Amex via Plaid.** Amex has an official data-sharing connection with Plaid: you sign in on Amex's own screen and the assistant gets a revocable read-only token, never your password. Personal-friendly options (SimpleFIN, Teller) only if they cover Amex. |
 | Recurring bills: payee, typical amount, due date, autopay status | Derived from transactions + bill emails |
 | Subscriptions | Derived from transactions |
 | Unusual charges or price changes | Anomaly detection vs. history |
 
 **Does:** makes sure nothing is missed, flags anomalies, pays bills (see §5 for how), cancels unwanted subscriptions, answers spending questions, prepares tax-relevant summaries.
 
-#### Paying people (Venmo, Zelle, Cash App, PayPal)
+#### Paying people (Venmo, Apple Cash, PayPal)
 
 "Pay Meinecke $30 for haircut" needs four things the assistant has to know or work out:
 
@@ -218,8 +220,10 @@ flowchart TB
     POLICY -->|allowed| Integrations
     POLICY -->|needs approval| APPROVE --> APP
     Integrations --> Memory
-    BROWSER --> VAULT
-    PAY --> VAULT
+    BROKER[[Secret broker<br/>types secrets in, AI never sees them]]
+    BROWSER --> BROKER
+    PAY --> BROKER
+    BROKER --> VAULT
     POLICY --> AUDIT
 ```
 
@@ -251,8 +255,11 @@ flowchart TB
 - Prefer official APIs. Fall back to the browser agent in a sandboxed container with per-site credentials pulled from the vault at run time. The model never sees raw passwords.
 - Every action goes through the policy engine and lands in the audit log, including screenshots for browser actions.
 
-**Security**
-- Secrets in a real vault (1Password Service Accounts, or cloud KMS-backed secrets). Encrypted database. MFA on everything.
+**Security** (full design in [SECURE-CREDENTIALS.md](SECURE-CREDENTIALS.md))
+- **The AI model never sees a password, card number or code.** It refers to secrets by name, and a separate secret broker (plain code) types them in, only on the right site and only for an active task.
+- Passwords you don't want stored are entered through **Secure Entry**: a Face ID page on your iPhone that autofills codes from Messages and passwords from Apple Passwords, encrypted on the phone.
+- Your Amex login, Apple ID, main email passwords and Venmo/PayPal logins are **never** given to the assistant. It uses revocable tokens or prepares actions for you to finish.
+- The assistant has its own vault (a dedicated 1Password vault via a service account), separate from your Apple Passwords. Encrypted database. MFA on everything.
 - **Prompt-injection defense**: content from email and the web is tagged untrusted. Untrusted content can inform but can't authorize. Payment and new-recipient tools require the payee to match the known payee list.
 - Single-tenant: it's your data, on infrastructure you control.
 
@@ -269,7 +276,7 @@ flowchart TB
 | Location | OwnTracks or Overland (iOS) → HTTPS endpoint | Already built, runs in the background |
 | Email | Gmail API / Microsoft Graph / IMAP, one connection per account | Covers all your accounts |
 | Browser agent | Playwright in an isolated container | Mature, scriptable, screenshots for the audit log |
-| Secrets | 1Password Service Accounts | Good SDK, you probably already use a password manager |
+| Secrets | Dedicated 1Password vault via a service account + secret broker | Separate from your personal Apple Passwords, revocable in one step |
 | Hosting | Single small cloud VM or Fly.io, daily encrypted backups | Low cost, single tenant |
 
 ---
@@ -281,7 +288,8 @@ There is **no consumer API to drive your bank's bill pay**, and scripting a bank
 | Tier | Mechanism | Covers | Risk |
 |---|---|---|---|
 | **1. Autopay, supervised** | Billers' own autopay. The assistant checks it's on, watches each amount, and alerts or stops on anomalies | Most recurring bills (utilities, phone, insurance, loans, cards) | Lowest |
-| **2. Capped virtual cards** | Merchant-locked virtual cards with spend limits (e.g. Privacy.com, or issuer virtual cards). The browser agent pays on the biller's portal | Bills without autopay, one-off payments, renewals (DMV, tolls) | **Hard cap enforced by the card, not the AI** |
+| **2. Capped card for the assistant** | A merchant-locked virtual card funded from Amex Rewards Checking (e.g. Privacy.com), or an Amex Additional Card with a spending limit. The browser agent pays on the biller's site and the secret broker types in the card number. See [SECURE-CREDENTIALS.md §7](SECURE-CREDENTIALS.md). | Bills without autopay, one-off payments, renewals (DMV, tolls) | **Hard cap enforced by the card, not the AI** |
+| **2b. Apple Pay** | The assistant prepares the checkout, you finish with Face ID | Online purchases where you'd use Apple Pay anyway | You confirm every one |
 | **3. Bank-to-biller APIs** | Debt-payment APIs (e.g. Method Financial) or ACH via Plaid Transfer | Credit cards, loans; more of a business setup | Medium; needs approval flow |
 | **4. Prepared for me** | Assistant fills everything in, I tap pay in my bank app | Anything else | None |
 
@@ -304,7 +312,8 @@ The monthly bill workflow:
 | **A. Prefilled payment** (recommended) | The assistant sends a link that opens Venmo with Meinecke's handle, $30 and "Haircut" already filled in. You check it and tap **Pay**. Cash App (`cash.app/$tag/30`) and PayPal (`paypal.me/name/30`) links work the same way. | One or two taps | Uses Venmo's official payment links. Money comes from your own Venmo. You see exactly what's being sent. |
 | **B. PayPal Payouts to a Venmo handle** | PayPal's Payouts API can send to a Venmo handle (US only). The money comes from a **PayPal Business** balance you top up. | None after setup | Truly hands-free, and the balance you top up is a hard cap. Downsides: needs a PayPal Business account, payments show as coming from the business, there are fees, and it mixes personal and business money. Check current eligibility with PayPal first. |
 | **C. Automate the Venmo app or website** | A browser or phone-control agent logs into your Venmo and taps through | None | **Not recommended.** Likely breaks Venmo's terms, trips fraud checks and 2FA, and can get your account frozen. |
-| **D. Zelle through your bank** | No API. Prepare the details; you send in your bank app. | A few taps | Fallback for people who only take Zelle. |
+| **D. Apple Cash** | No API. The assistant tells you what to send. You send it in Messages with Face ID. | A few taps | For people you pay with Apple Cash |
+| **E. PayPal** | A `paypal.me/name/amount` link, prefilled like Venmo | One or two taps | Rare use, so the link is enough |
 
 **Flow for "Pay Meinecke $30 for haircut" (option A):**
 
@@ -323,7 +332,8 @@ Later, if you set up option B, a payment like this (verified handle, normal amou
 Estimates assume one developer working with AI coding help, part-time.
 
 ### Phase 0 — Foundations (2–3 weeks)
-- Repo, infra, database schema, secrets vault, audit log.
+- Repo, infra, database schema, audit log.
+- Assistant vault + secret broker skeleton, masking of anything sent to the model, kill switch.
 - iMessage chat + Claude orchestrator.
 - Onboarding interview that fills the profile (people, vehicles, work, accounts, places).
 - "What I know about you" page (view and edit facts).
@@ -332,7 +342,7 @@ Estimates assume one developer working with AI coding help, part-time.
 ### Phase 1 — Awareness (3–4 weeks)
 - Read access to all email accounts + calendar. Ingest bills, receipts and notices.
 - WhatsApp as a second chat channel.
-- Finance aggregator (read-only). Detect recurring bills and subscriptions.
+- Amex via Plaid (read-only, OAuth). Detect recurring bills and subscriptions.
 - VIN decode, recall checks, renewal tracking.
 - Daily brief + reminders. Bill-due alerts (tier 1 and 4 payments).
 - **Done when:** a month passes with no missed bill or renewal, and I didn't have to tell it about any of them.
@@ -345,7 +355,8 @@ Estimates assume one developer working with AI coding help, part-time.
 
 ### Phase 3 — Actions with approval (4–6 weeks)
 - Approval queue + push notifications in the PWA.
-- Capped virtual cards + browser agent for paying bills and renewals.
+- Secure Entry (Face ID page for codes and passwords) + broker typing secrets into the browser.
+- Capped card for the assistant + browser agent for paying bills and renewals, with every charge reconciled.
 - Paying people: "Pay Meinecke $30" → prefilled Venmo, Cash App or PayPal link, confirmed from the receipt email (§5.1 option A).
 - Calendar writes, email drafts and sends (with approval).
 - Booking appointments (service shops, etc.) via APIs or browser.
@@ -385,7 +396,8 @@ Verify pricing for each provider before committing; these change often.
 | Wrong or fraudulent payment | Known-payee list, card-level caps, anomaly checks, approvals, kill switch |
 | Paying the wrong person (lookalike handles, "my Venmo changed" scams) | Handles trusted only from past successful payments or my own input; changed handles always need my approval; I always see the handle before I tap Pay |
 | Prompt injection (malicious email or web page) | Untrusted-content tagging; money tools require verified payees; no auto-action on email instructions |
-| Data breach (this system holds everything) | Single tenant, encryption, vault for secrets, MFA, minimal retention of raw data, no secrets in model context |
+| Data breach (this system holds everything) | Single tenant, encryption, vault for secrets, MFA, minimal retention of raw data, no secrets in model context. The highest-value logins (Amex, Apple ID, main email) are never stored at all. |
+| Credential leaks or misuse | Secret broker with site and task binding, Secure Entry, masking, audit of every use. See [SECURE-CREDENTIALS.md](SECURE-CREDENTIALS.md). |
 | Wrong facts in memory | Provenance + confidence on every fact, confirmation for low-confidence facts, editable memory |
 | Browser automation breaks or violates terms | APIs first; browser only for portals that allow it; screenshots + failure alerts; never script bank logins |
 | Over-reliance (silent failures) | Weekly digest, "things I couldn't do" alerts, health checks on every integration |
@@ -411,10 +423,10 @@ Verify pricing for each provider before committing; these change often.
 3. **Personal vs. business:** Should it cover your work and business (email, vehicles, bills), or keep strictly personal with business later?
 4. **Who else:** Just you, or family members too (shared vehicles, household bills)?
 5. **Money comfort level:** Is "one-tap approve every payment" acceptable at first? What's a per-payment amount you'd be fine with it paying on its own later?
-6. **Banks and billers:** Which banks, cards, utilities, insurance and lenders? (Determines which integrations are actually available.)
+6. ~~**Banks:**~~ Amex. **Billers:** which utilities, insurance companies and lenders do you pay? **Password manager:** Apple Passwords only, or something else too? **Assistant's card:** a virtual card service or an Amex Additional Card? (See [SECURE-CREDENTIALS.md](SECURE-CREDENTIALS.md) §12.)
 7. **Vehicles:** Makes and model years? (Determines connected-car API coverage.)
 8. **Hosting:** Cloud VM, or a machine at home?
-9. **Paying people:** Which apps do you use (Venmo, Zelle, Cash App, PayPal, Apple Cash)? Is "two taps to confirm" fine, or do you want the hands-free PayPal Business setup?
+9. ~~**Paying people:**~~ Venmo, Apple Cash, PayPal. Is "two taps to confirm" fine, or do you want the hands-free PayPal Business setup?
 10. **Build:** Are you building this yourself (with Claude Code), hiring, or a mix?
 
 ---
